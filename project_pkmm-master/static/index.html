@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2712%27 fill=%27%23174b3d%27/%3E%3Ctext x=%2715%27 y=%2747%27 font-size=%2744%27 fill=%27white%27%3EB%3C/text%3E%3C/svg%3E">
+  <title>BARA — Pantau Api Indonesia</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <!-- 1. Global Command Header -->
+  <header>
+    <div class="header-left">
+      <a class="brand" href="/" aria-label="BARA Beranda">
+        BARA
+        <span class="brand-tag">INDONESIA FIRE WATCH</span>
+      </a>
+      <nav class="quick-nav" aria-label="Navigasi cepat seksi">
+        <a href="#workspace-section">Peta Operasional</a>
+        <a href="#grid-section">Pemantauan Grid</a>
+        <a href="#priority-section">Prioritas Respon</a>
+        <a href="#detection-section">Log Deteksi</a>
+        <a href="#" id="navNotif">Notifikasi</a>
+      </nav>
+    </div>
+    <div class="header-right">
+      <div class="system-indicator">
+        <span class="indicator-label">SISTEM:</span>
+        <span class="indicator-val">OPERASIONAL</span>
+        <span class="signal-dot" aria-hidden="true"></span>
+      </div>
+      <span class="header-divider" aria-hidden="true">|</span>
+      <div class="system-indicator">
+        <span class="indicator-label">MODEL:</span>
+        <strong class="indicator-val">XGBoost</strong>
+      </div>
+      <span class="header-divider" aria-hidden="true">|</span>
+      <button id="notifBell" class="notif-bell" type="button" aria-label="Buka Pusat Notifikasi" aria-expanded="false" aria-controls="notifPanel">
+        <span aria-hidden="true">🔔</span>
+        <span id="notifBadge" class="notif-badge" hidden>0</span>
+      </button>
+      <small id="clock" class="clock-display" title="Waktu sistem"></small>
+    </div>
+  </header>
+
+  <main>
+    <!-- 2. Operational Intro & Subtitle -->
+    <section class="intro" aria-label="Ringkasan Operasional">
+      <div class="intro-content">
+        <div class="intro-titles">
+          <p class="eyebrow">STASIUN PEMANTAUAN KARHUTLA NASIONAL</p>
+          <h1>Sistem Pemantauan Titik Panas &amp; Deteksi Dini Kerawanan Lahan</h1>
+        </div>
+        <p class="subtitle">
+          Integrasi deteksi termal satelit VIIRS NASA FIRMS dan inferensi spektral Sentinel-2 (XGBoost) untuk kesiapsiagaan kebakaran hutan dan lahan daratan Indonesia.
+        </p>
+      </div>
+      <div class="intro-badge">
+        <span class="badge-dot" aria-hidden="true">●</span>
+        <span>KONSOL OPERASIONAL GEOSPASIAL</span>
+      </div>
+    </section>
+
+    <!-- 3. Operational Summary Metrics Strip -->
+    <section class="stats" aria-label="Ringkasan Indikator Kunci">
+      <article>
+        <span class="stat-label">HOTSPOT TERDETEKSI (FIRMS)</span>
+        <strong id="count" class="stat-value">—</strong>
+        <small id="period" class="stat-sub">Menunggu data NASA FIRMS…</small>
+      </article>
+      <article>
+        <span class="stat-label">KEYAKINAN TINGGI (HIGH)</span>
+        <strong id="high" class="stat-value">—</strong>
+        <small class="stat-sub">Kategori keyakinan tinggi VIIRS</small>
+      </article>
+      <article>
+        <span class="stat-label">DAYA RADIATIF MAKS (FRP)</span>
+        <div class="frp-wrapper">
+          <strong id="frp" class="stat-value">—</strong>
+          <span class="stat-unit">MW</span>
+        </div>
+        <small class="stat-sub">Fire Radiative Power puncak</small>
+      </article>
+      <article>
+        <span class="stat-label">MESIN ANALISIS LOKAL (AI)</span>
+        <strong class="stat-value model-title">XGBoost <i id="modelDot" aria-hidden="true">●</i></strong>
+        <small id="modelStatus" class="stat-sub">Memeriksa model lokal…</small>
+      </article>
+    </section>
+
+    <!-- 4. Main Geospatial Workspace (Map: ~70%, Action Panel: ~30%) -->
+    <section class="workspace" id="workspace-section" aria-label="Area Peta dan Kontrol Pemantauan">
+      <!-- Main Map Panel (~70%) -->
+      <div class="map-panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">PETA PEMANTAUAN GEOSPASIAL</p>
+            <h2>Wilayah Daratan Indonesia</h2>
+          </div>
+          <button id="reset" class="quiet" title="Atur ulang tampilan ke seluruh kepulauan Indonesia">↗ Seluruh Indonesia</button>
+        </div>
+
+        <!-- Map Toolbar with Period, Filters & Independent Layer Toggles -->
+        <div class="toolbar" role="toolbar" aria-label="Filter dan kontrol peta">
+          <div class="toolbar-group">
+            <label for="days">
+              <span class="toolbar-label-text">Periode FIRMS:</span>
+              <select id="days" aria-label="Rentang hari akuisisi FIRMS">
+                <option value="1">24 jam terakhir*</option>
+                <option value="2">2 hari terakhir*</option>
+                <option value="3">3 hari terakhir*</option>
+              </select>
+            </label>
+            <label class="checkbox-label" for="highOnly">
+              <input type="checkbox" id="highOnly">
+              <span>Keyakinan tinggi saja</span>
+            </label>
+          </div>
+
+          <!-- Independent Layer Visibility Toggles -->
+          <div class="layer-toggles" role="group" aria-label="Visibilitas Lapisan Peta">
+            <span class="toolbar-label-text">Lapisan:</span>
+            <label class="checkbox-label" for="toggleHotspots">
+              <input type="checkbox" id="toggleHotspots" checked>
+              <span>Hotspot FIRMS</span>
+            </label>
+            <label class="checkbox-label" for="toggleGrid">
+              <input type="checkbox" id="toggleGrid" checked>
+              <span>Grid Sentinel-2</span>
+            </label>
+            <label class="checkbox-label" for="toggleBoundary">
+              <input type="checkbox" id="toggleBoundary" checked>
+              <span>Batas Wilayah</span>
+            </label>
+          </div>
+
+          <button id="refresh" class="btn-refresh" title="Muat ulang deteksi hotspot dari FIRMS">↻ Perbarui Data</button>
+        </div>
+
+        <!-- Leaflet Map Container -->
+        <div id="map" aria-label="Peta hotspot interaktif Indonesia" role="region"></div>
+
+        <!-- Comprehensive Operational Legend & Status -->
+        <div class="map-footer">
+          <div class="legend-items" aria-label="Legenda Simbol Peta">
+            <span class="legend-group-label">FIRMS:</span>
+            <span class="legend-item"><i class="dot red" aria-hidden="true"></i> Tinggi</span>
+            <span class="legend-item"><i class="dot orange" aria-hidden="true"></i> Nominal / Rendah</span>
+            <span class="legend-sep" aria-hidden="true">|</span>
+            <span class="legend-group-label">Sentinel-2 (XGBoost):</span>
+            <span class="legend-item"><i class="dot amber" aria-hidden="true"></i> Kelas 1 (Potensi)</span>
+            <span class="legend-item"><i class="dot green" aria-hidden="true"></i> Kelas 0 (Aman)</span>
+            <span class="legend-item"><i class="dot gray" aria-hidden="true"></i> Awan / Gagal</span>
+            <span class="legend-sep" aria-hidden="true">|</span>
+            <span class="legend-item"><i class="box-legend" aria-hidden="true"></i> Area Grid 3×3</span>
+          </div>
+          <div class="map-status-area">
+            <p id="feedStatus" role="status">Menghubungkan ke NASA FIRMS…</p>
+          </div>
+        </div>
+        <p class="fine map-disclaimer">*Mengikuti hari akuisisi API FIRMS. Deteksi termal satelit adalah anomali panas inframerah, bukan konfirmasi kebakaran darat. Sampel grid Sentinel-2 3 × 3 adalah titik diskrit daratan, bukan peta risiko kontinu seluruh wilayah nasional.</p>
+      </div>
+
+      <!-- Operational Action Panel (~30%) with Tabbed Controls -->
+      <aside class="action-panel" aria-label="Kontrol Pemantauan dan Analisis">
+        <!-- Tabbed Navigation Header -->
+        <div class="panel-tabs" role="tablist" aria-label="Pilihan Moda Kontrol">
+          <button type="button" id="tabBtnGrid" class="tab-btn active" role="tab" aria-selected="true" aria-controls="tabPaneGrid">
+            01 / Pemantauan Grid
+          </button>
+          <button type="button" id="tabBtnManual" class="tab-btn" role="tab" aria-selected="false" aria-controls="tabPaneManual">
+            02 / Analisis Manual
+          </button>
+        </div>
+
+        <!-- TAB 1: Grid Monitoring -->
+        <div id="tabPaneGrid" class="tab-pane active" role="tabpanel" aria-labelledby="tabBtnGrid">
+          <div class="analysis-head">
+            <h2>Area &amp; Jadwal Grid</h2>
+            <p>Tentukan batas pemantauan di peta. Grid 3 × 3 menyampel daratan Indonesia, maksimal 5 titik per siklus.</p>
+          </div>
+
+          <div class="control-group">
+            <button id="pickArea" class="area-pick">▧ Pilih area di peta (2 sudut)</button>
+            <p id="areaHint" class="fine" role="status">Belum memilih area. Maksimal lebar &amp; tinggi 2 derajat (~220 km).</p>
+          </div>
+
+          <div class="control-group">
+            <label class="interval-label" for="interval">Interval pemeriksaan grid</label>
+            <select id="interval" aria-label="Interval waktu pemantauan otomatis">
+              <option value="30">Setiap 30 menit</option>
+              <option value="60">Setiap 1 jam</option>
+              <option value="180">Setiap 3 jam</option>
+            </select>
+          </div>
+
+          <div class="control-group action-buttons">
+            <button id="saveArea" class="analyze" disabled>Simpan area &amp; mulai <span>→</span></button>
+            <div class="monitor-actions">
+              <button id="runNow" class="quiet">Analisis sekarang</button>
+              <button id="pauseMonitor" class="quiet">Jeda</button>
+            </div>
+          </div>
+
+          <div class="monitor-status-box">
+            <div id="monitorStatus" class="monitor-status" aria-live="polite">Memuat jadwal…</div>
+            <p class="fine">Berjalan selama server hidup, termasuk saat tab ditutup. Titik diproses satu per satu. Wilayah di antara sampel belum dianalisis.</p>
+          </div>
+        </div>
+
+        <!-- TAB 2: Manual Analysis (XGBoost Sentinel-2 Single Point) -->
+        <div id="tabPaneManual" class="tab-pane" role="tabpanel" aria-labelledby="tabBtnManual">
+          <details class="manual-analysis" open>
+            <summary class="sr-only">Analisis manual satu titik (Sentinel-2)</summary>
+            <div class="analysis-head">
+              <h2>Analisis Manual Titik</h2>
+              <p class="fine form-help">Klik sembarang titik daratan pada peta saat mode pilih area mati, lalu tentukan rentang tanggal citra untuk inferensi XGBoost.</p>
+            </div>
+            <form id="prediction">
+              <div class="coords">
+                <label>Lintang (Lat)<input id="lat" type="number" step="any" min="-11.5" max="6.5" value="-2.2" required></label>
+                <label>Bujur (Lon)<input id="lon" type="number" step="any" min="94" max="142" value="113.9" required></label>
+              </div>
+              <div class="date-range-fields">
+                <label>Tanggal awal<input id="start" type="date" required></label>
+                <label>Tanggal akhir<input id="end" type="date" required></label>
+              </div>
+              <button class="analyze" id="analyze">Analisis dengan XGBoost <span>→</span></button>
+            </form>
+            <p class="fine form-note">Citra terbaru dengan piksel bebas awan (SCL valid) akan dipilih otomatis. Analisis memerlukan beberapa detik.</p>
+            <div id="result" class="result" aria-live="polite">
+              <span class="eyebrow">STATUS ANALISIS</span>
+              <p>Hasil inferensi probabilitas dan metadata citra akan ditampilkan di sini.</p>
+            </div>
+          </details>
+        </div>
+
+        <!-- Scientific Interpretation & Methodology (Persistent Accordion) -->
+        <details class="info-details">
+          <summary>Arti hasil model &amp; batasan ilmiah</summary>
+          <div class="details-body">
+            <p><strong>Kelas 1:</strong> Berpotensi terbakar berdasarkan karakteristik pantulan spektral Sentinel-2 (biomassa kering). Bukan jaminan kebakaran pasti terjadi.</p>
+            <p><strong>Kelas 0:</strong> Kondisi vegetasi basah/aman menurut model pada tanggal akuisisi citra.</p>
+            <p><strong>Validitas:</strong> Citra lebih dari 14 hari tidak dimasukkan ke prioritas potensi terbaru. Piksel tertutup awan ditolak dan dicoba citra berikutnya (hingga 5 adegan).</p>
+          </div>
+        </details>
+      </aside>
+    </section>
+
+    <!-- 5. Priority Response Panel (Two-Tier Priority System) -->
+    <section class="priorities" id="priority-section" aria-label="Urutan Tindakan dan Prioritas Lapangan">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">TRIKOLOGI PRIORITAS LAPANGAN</p>
+          <h2>Dahulukan Respons Pemadaman, Lanjutkan Mitigasi</h2>
+        </div>
+        <button id="priorityRefresh" class="quiet">↻ Perbarui Prioritas</button>
+      </div>
+      <p id="priorityNote" class="priority-note" role="status">Memuat prioritas…</p>
+      
+      <div class="priority-columns">
+        <!-- Tier 1 Column: Active FIRMS Thermal Indications -->
+        <article class="priority-card">
+          <div class="priority-title">
+            <b>01</b>
+            <div>
+              <h3>Indikasi Kebakaran Aktif</h3>
+              <p>FIRMS · 24 jam terakhir · Verifikasi lapangan</p>
+            </div>
+            <span id="activeTotal" class="priority-count">—</span>
+          </div>
+          <div id="activeList" class="priority-list" role="region" aria-label="Daftar anomali termal aktif">
+            <p class="fine">Menunggu data FIRMS.</p>
+          </div>
+        </article>
+
+        <!-- Tier 2 Column: Recent XGBoost Class-1 Predictions -->
+        <article class="priority-card">
+          <div class="priority-title prevention">
+            <b>02</b>
+            <div>
+              <h3>Potensi Kerawanan Terbakar</h3>
+              <p>XGBoost · Kelas 1 · Tindakan pencegahan</p>
+            </div>
+            <span id="potentialTotal" class="priority-count">—</span>
+          </div>
+          <div id="potentialList" class="priority-list" role="region" aria-label="Daftar potensi kebakaran XGBoost">
+            <p class="fine">Menunggu analisis grid.</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- 6. Grid Monitoring Results Table -->
+    <section class="detections grid-results" id="grid-section" aria-label="Tabel Status Grid Pemantauan">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">JEJAK PEMANTAUAN SENTINEL-2</p>
+          <h2>Status Tiap Titik Grid Daratan</h2>
+        </div>
+        <span id="gridSummary" class="fine summary-pill">Belum ada grid</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">TITIK</th>
+              <th scope="col">KOORDINAT</th>
+              <th scope="col">STATUS / HASIL</th>
+              <th scope="col">SKOR KELAS 1</th>
+              <th scope="col">AKUISISI CITRA</th>
+              <th scope="col">PEMERIKSAAN TERAKHIR</th>
+            </tr>
+          </thead>
+          <tbody id="gridRows">
+            <tr><td colspan="6">Pilih area untuk membentuk grid sampel daratan Indonesia.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="fine grid-notice-disclaimer"><strong>Perhatian Operasional:</strong> Titik yang berstatus gagal dianalisis (akibat tutupan awan atau jeda layanan) <em>bukan</em> berarti wilayah tersebut aman dari kebakaran. Wilayah di antara titik grid 3 × 3 tidak dianalisis secara otomatis.</p>
+    </section>
+
+    <!-- 7. Detection Records Table (FIRMS Active Anomalies) -->
+    <section class="detections" id="detection-section" aria-label="Log Tabular Anomali Termal Satelit">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">CATATAN DETEKSI TERMAL</p>
+          <h2>Log Anomali Satelit VIIRS S-NPP</h2>
+        </div>
+        <button id="download" class="quiet" disabled>↓ Unduh CSV</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">LOKASI / KOORDINAT</th>
+              <th scope="col">AKUISISI (UTC)</th>
+              <th scope="col">KEYAKINAN</th>
+              <th scope="col">FRP (MW)</th>
+              <th scope="col">SATELIT</th>
+            </tr>
+          </thead>
+          <tbody id="rows">
+            <tr><td colspan="5">Belum ada data. Konfigurasikan MAP_KEY NASA FIRMS untuk memulai.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p id="tableNotice" class="fine table-notice" role="status"></p>
+    </section>
+
+    <!-- 8. Operations Footer -->
+    <footer>
+      <div class="footer-left">
+        <b>BARA / KARSA-FIRE</b>
+        <p>Sistem Pemantauan Terpadu Titik Panas &amp; Deteksi Dini Kebakaran Hutan dan Lahan Indonesia.<br>
+        Data sumber: NASA FIRMS (VIIRS S-NPP) · Copernicus Sentinel-2 L2A via AWS STAC Earth Search · Peta &copy; Kontributor OpenStreetMap.<br>
+        <em>Catatan operasional: Deteksi termal satelit adalah anomali panas inframerah, verifikasi darat diperlukan untuk konfirmasi kebakaran.</em></p>
+      </div>
+      <div class="footer-right">
+        <a href="https://firms.modaps.eosdis.nasa.gov/api/" target="_blank" rel="noopener">Dapatkan FIRMS MAP_KEY ↗</a>
+      </div>
+    </footer>
+  </main>
+
+  <!-- Notification Center (in-app, persistent, severity-aware) -->
+  <div id="notifOverlay" class="notif-overlay" hidden></div>
+  <aside id="notifPanel" class="notif-panel" aria-label="Pusat Notifikasi" aria-hidden="true">
+    <div class="notif-head">
+      <div>
+        <p class="eyebrow">PUSAT NOTIFIKASI</p>
+        <h2>Notifikasi &amp; Peringatan</h2>
+      </div>
+      <button id="notifClose" class="notif-close" type="button" aria-label="Tutup Pusat Notifikasi">×</button>
+    </div>
+
+    <div class="notif-toolbar">
+      <label for="notifSeverity">Severity
+        <select id="notifSeverity">
+          <option value="">Semua</option>
+          <option value="INFO">INFO</option>
+          <option value="WASPADA">WASPADA</option>
+          <option value="DARURAT">DARURAT</option>
+        </select>
+      </label>
+      <label for="notifStatus">Status
+        <select id="notifStatus">
+          <option value="">Semua</option>
+          <option value="UNREAD">Belum dibaca</option>
+          <option value="READ">Dibaca</option>
+          <option value="ACKNOWLEDGED">Diakui</option>
+          <option value="DISMISSED">Diabaikan</option>
+          <option value="RESOLVED">Selesai</option>
+        </select>
+      </label>
+      <div class="notif-toolbar-actions">
+        <button id="notifMarkAllRead" class="quiet" type="button">Tandai semua dibaca</button>
+        <button id="notifRefresh" class="quiet" type="button">↻ Perbarui</button>
+      </div>
+    </div>
+
+    <p id="notifSummary" class="notif-summary" role="status">Memuat notifikasi…</p>
+    <div id="notifList" class="notif-list" role="region" aria-label="Daftar notifikasi"></div>
+
+    <p class="notif-disclaimer">
+      Peringatan otomatis bukan konfirmasi kebakaran. DARURAT hanya dibuat setelah
+      verifikasi petugas; sistem ini bukan sumber pernyataan darurat resmi.
+    </p>
+  </aside>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
